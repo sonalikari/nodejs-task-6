@@ -1,5 +1,5 @@
 const express = require('express');
-const connectDB = require('./database/db');
+const { connectDB }= require('./database/db');
 const userRoutes = require('./routes/userRoutes');
 require('dotenv').config();
 const passport = require('./middleware/passport');

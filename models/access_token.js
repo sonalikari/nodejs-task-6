@@ -1,9 +1,16 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../database/db');
+const User = require('./User'); 
 
-const accessTokenSchema = new mongoose.Schema({
-    user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    access_token: { type: String, required: true, unique: true },
-    expiry: { type: Date, required: true }
+const AccessToken = sequelize.define('AccessToken', {
+  id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+  userId: { type: DataTypes.INTEGER, allowNull: false }, 
+  access_token: { type: DataTypes.STRING, allowNull: false, unique: true },
+  expiry: { type: DataTypes.DATE, allowNull: false },
+}, {
+  timestamps: false 
 });
 
-module.exports = mongoose.model('AccessToken', accessTokenSchema);
+AccessToken.belongsTo(User, { foreignKey: 'userId' });
+
+module.exports = AccessToken;

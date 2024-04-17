@@ -1,4 +1,5 @@
 const AccessToken = require('../models/access_token');
+const User = require('../models/User'); 
 
 exports.validateAccessToken = async (req, res, next) => {
     try {
@@ -6,12 +7,12 @@ exports.validateAccessToken = async (req, res, next) => {
         if (!accessToken) {
             return res.status(400).json({ error: 'Access token is required' });
         }
-        const token = await AccessToken.findOne({ access_token: accessToken }).populate('user_id');
+        const token = await AccessToken.findOne({ where: { access_token: accessToken }, include: [User] });
 
-        if (!token || token.expiry < Date.now()) {
+        if (!token || token.expiry < Date.now() || !token.User) {
             return res.status(400).json({ error: 'Invalid access token or token expired' });
         }
-        req.user = token.user_id;
+        req.user = token.User; 
         next();
     } catch (error) {
         console.error('Error validating access token:', error);
