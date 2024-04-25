@@ -1,21 +1,16 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../database/db');
+const User = require('./User'); 
 
-const passwordResetTokenSchema = new mongoose.Schema({
-    userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    token: {
-        type: String,
-        required: true
-    },
-    expiresAt: {
-        type: Date,
-        required: true
-    }
+const PasswordResetToken = sequelize.define('PasswordResetToken', {
+  id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+  userId: { type: DataTypes.INTEGER, allowNull: false }, 
+  token: { type: DataTypes.STRING, allowNull: false },
+  expiresAt: { type: DataTypes.DATE, allowNull: false },
+}, {
+  timestamps: false 
 });
 
-const PasswordResetToken = mongoose.model('PasswordResetToken', passwordResetTokenSchema);
+PasswordResetToken.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = PasswordResetToken;

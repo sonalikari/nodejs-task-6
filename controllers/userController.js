@@ -1,5 +1,5 @@
 const bcrypt = require('bcrypt');
-const User = require('../models/user');
+const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const AccessToken = require('../models/access_token');
@@ -35,7 +35,7 @@ exports.registerUser = async (req, res) => {
             lastname,
             verificationToken
         });
-        await newUser.save(); 
+        await newUser.save();
         await sendRegistrationEmail(email, verificationToken);
         res.status(200).json({ message: 'Registration email sent. Please verify your email address.' });
     } catch (error) {
@@ -51,7 +51,9 @@ exports.verifyEmail = async (req, res) => {
         const decodedToken = jwt.verify(token, process.env.VERIFICATION_SECRET);
         const email = decodedToken.email;
 
-        await User.findOneAndUpdate({ email }, { isEmailVerified: true });
+        await User.update({ isEmailVerified: true }, {
+            where: { email: email }
+        });
 
         res.status(200).json({ message: 'Email verified successfully. You can now login.' });
     } catch (error) {
@@ -63,7 +65,7 @@ exports.verifyEmail = async (req, res) => {
 exports.loginUser = async (req, res) => {
     try {
         const { username, password } = req.body;
-        const user = await User.findOne({ username });
+        const user = await User.findOne({ where: { username } });
 
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
@@ -77,16 +79,17 @@ exports.loginUser = async (req, res) => {
         if (!user.isEmailVerified) {
             return res.status(400).json({ error: 'Email not verified. Please verify your email address.' });
         }
-        const token = jwt.sign({ userId: user._id }, process.env.KEY, { expiresIn: '1h' });
+        const token = jwt.sign({ userId: user.id }, process.env.KEY, { expiresIn: '1h' });
 
         await AccessToken.create({
-            user_id: user._id,
+            userId: user.id,
             access_token: token,
-            expiry: Date.now() + 3600000 
+            expiry: new Date(Date.now() + 3600000)
         });
-       
-        res.status(200).json({ access_token: token });
+
+        res.status(200).json({ success: true, access_token: token });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: 'Error while logging in the user' });
     }
 };
@@ -94,17 +97,19 @@ exports.loginUser = async (req, res) => {
 exports.getUserData = async (req, res) => {
     try {
         const accessToken = req.headers['access_token'];
-        const token = await AccessToken.findOne({ access_token: accessToken });
+        const token = await AccessToken.findOne({ where: { access_token: accessToken } });
 
         if (!token || token.expiry < Date.now()) {
             return res.status(400).json({ error: 'Invalid access token or token expired' });
         }
-        const user = await User.findById(token.user_id);
+        const user = await User.findByPk(token.userId);
+
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
         }
-        res.json(user);
+        res.json({ success: true, user });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: 'Error while fetching user data' });
     }
 };
@@ -112,19 +117,19 @@ exports.getUserData = async (req, res) => {
 exports.deleteUserData = async (req, res) => {
     try {
         const accessToken = req.headers['access_token'];
-        const token = await AccessToken.findOne({ access_token: accessToken });
+        const token = await AccessToken.findOne({ where: { access_token: accessToken } });
 
         if (!token || token.expiry < Date.now()) {
             return res.status(400).json({ error: 'Invalid access token or token expired' });
         }
-        const user = await User.findById(token.user_id);
+        const user = await User.findByPk(token.userId);
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
         }
-        await User.findByIdAndDelete(token.user_id);
+        await user.destroy();
         res.json({ message: 'User deleted' });
     } catch (error) {
-        res.status(500).json({ error: 'An error occurred while deleting user data' });
+        res.status(500).json({ error: 'Error while deleting user data' });
     }
 };
 
@@ -136,10 +141,11 @@ exports.getUserList = async (req, res) => {
         }
         const limit = 10;
         const skip = (page - 1) * limit;
-        const userList = await User.find().skip(skip).limit(limit);
+        const userList = await User.findAll({ offset: skip, limit: limit });
 
         res.json(userList);
     } catch (error) {
+        console.error('Error while fetching user list:', error);
         res.status(500).json({ error: 'Error while fetching user list' });
     }
 };
@@ -147,9 +153,9 @@ exports.getUserList = async (req, res) => {
 exports.addUserAddress = async (req, res) => {
     try {
         const { address, city, state, pincode, phone } = req.body;
-        const userId = req.user._id; 
+        const userId = req.user.id;
 
-        const newAddress = new Address({
+        const newAddress = await Address.create({
             userId: userId,
             address,
             city,
@@ -158,16 +164,11 @@ exports.addUserAddress = async (req, res) => {
             phone
         });
 
-        await newAddress.save();
-
-        const user = await User.findById(userId);
+        const user = await User.findByPk(userId);
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
         }
-
-        user.addresses.push(newAddress._id);
-        await user.save();
-
+        await user.addAddress(newAddress);
         res.status(200).json({ message: 'Address added successfully' });
     } catch (error) {
         console.error('Error adding user address:', error);
@@ -178,8 +179,7 @@ exports.addUserAddress = async (req, res) => {
 exports.getUserById = async (req, res) => {
     try {
         const userId = req.params.id;
-
-        const user = await User.findById(userId).populate('addresses');
+        const user = await User.findByPk(userId, { include: Address });
 
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
@@ -193,23 +193,14 @@ exports.getUserById = async (req, res) => {
 
 exports.deleteUserAddress = async (req, res) => {
     try {
-        const userId = req.user._id;
-        const addressIds = req.body.addressIds; 
+        const userId = req.user.id;
+        const addressIds = req.body.addressIds;
 
         if (!Array.isArray(addressIds) || addressIds.length === 0) {
             return res.status(400).json({ error: 'Invalid address ids' });
         }
 
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(400).json({ error: 'User not found' });
-        }
-
-        user.addresses = user.addresses.filter(addressId => !addressIds.includes(addressId));
-
-        await user.save();
-
-        await Address.deleteMany({ _id: { $in: addressIds } });
+        await Address.destroy({ where: { id: addressIds, userId } });
 
         res.status(200).json({ message: 'Addresses deleted successfully' });
     } catch (error) {
@@ -222,15 +213,14 @@ exports.forgotPassword = async (req, res) => {
     try {
         const { email } = req.body;
 
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ where: { email } });
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
         }
+        const token = jwt.sign({ userId: user.id }, process.env.PASSWORD_RESET_KEY, { expiresIn: '15m' });
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
-        const token = jwt.sign({ userId: user._id }, process.env.PASSWORD_RESET_KEY, { expiresIn: '15m' });
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000); 
-
-        await PasswordResetToken.create({ userId: user._id, token, expiresAt });
+        await PasswordResetToken.create({ userId: user.id, token, expiresAt });
         await sendPasswordResetEmail(email, token);
         res.status(200).json({ message: 'Password reset token sent successfully', token });
     } catch (error) {
@@ -248,7 +238,7 @@ exports.verifyResetPassword = async (req, res) => {
             return res.status(400).json({ error: 'Reset token is required' });
         }
 
-        const tokenRecord = await PasswordResetToken.findOne({ token: resetToken });
+        const tokenRecord = await PasswordResetToken.findOne({ where: { token: resetToken } });
         if (!tokenRecord) {
             return res.status(400).json({ error: 'Invalid reset token' });
         }
@@ -261,11 +251,11 @@ exports.verifyResetPassword = async (req, res) => {
             return res.status(400).json({ error: 'Password reset token has expired' });
         }
 
-        const user = await User.findById(userId);
+        const user = await User.findByPk(userId);
         if (!user) {
             return res.status(400).json({ error: 'User not found' });
         }
-        const email = user.email;
+
         if (password !== confirmPassword) {
             return res.status(400).json({ error: 'Passwords do not match' });
         }
@@ -274,15 +264,14 @@ exports.verifyResetPassword = async (req, res) => {
         user.password = hashedPassword;
         await user.save();
 
-        await PasswordResetToken.deleteOne({ token: resetToken });
-        await sendPasswordResetSuccessEmail(email);
+        await PasswordResetToken.destroy({ where: { token: resetToken } });
+        await sendPasswordResetSuccessEmail(user.email);
         res.status(200).json({ message: 'Password reset successful' });
     } catch (error) {
         console.error('Error resetting password:', error);
         res.status(500).json({ error: 'Error resetting password' });
     }
 };
-
 
 const sendRegistrationEmail = async (email, verificationToken) => {
     const verificationLink = `http://localhost:8000/user/verify-email?token=${verificationToken}`;
@@ -297,7 +286,6 @@ const sendRegistrationEmail = async (email, verificationToken) => {
     };
     await transporter.sendMail(mailOptions);
 };
-
 
 const sendPasswordResetEmail = async (email, resetToken) => {
     const resetLink = `http://localhost:8000/user/verify_reset_password/${resetToken}`;

@@ -1,12 +1,20 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../database/db');
 
-const addressSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    address: { type: String, required: true },
-    city: { type: String, required: true },
-    state: { type: String, required: true },
-    pincode: { type: String, required: true },
-    phone: { type: String, required: true }
+const Address = sequelize.define('Address', {
+  id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+  userId: { type: DataTypes.INTEGER, allowNull: false },
+  address: { type: DataTypes.STRING, allowNull: false },
+  city: { type: DataTypes.STRING, allowNull: false },
+  state: { type: DataTypes.STRING, allowNull: false },
+  pincode: { type: DataTypes.STRING, allowNull: false },
+  phone: { type: DataTypes.STRING, allowNull: false },
+}, {
+  timestamps: false
 });
 
-module.exports = mongoose.model('Address', addressSchema);
+Address.associate = (models) => {
+  Address.belongsTo(models.User);
+};
+
+module.exports = Address;
